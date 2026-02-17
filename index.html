@@ -1,1 +1,442 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Block Puzzle FINAL BOSS</title>
 
+<style>
+:root{
+  --bg:#243b9f;
+  --board:#1b2b7a;
+  --cell:#15205c;
+}
+body{
+  margin:0;
+  font-family:Arial;
+  background:var(--bg);
+  color:white;
+  display:flex;
+  flex-direction:column;
+  align-items:center;
+  overflow:hidden;
+  user-select:none;
+}
+h2{margin:8px 0 4px;font-size:21px}
+#top{
+  display:flex;gap:8px;
+  flex-wrap:wrap;
+  justify-content:center;
+  margin-bottom:8px;
+}
+.box{
+  background:var(--board);
+  padding:7px 10px;
+  border-radius:10px;
+  font-weight:bold;
+  font-size:14px;
+}
+
+#board{
+  display:grid;
+  grid-template-columns:repeat(10,34px);
+  grid-template-rows:repeat(10,34px);
+  gap:2px;
+  background:var(--board);
+  padding:6px;
+  border-radius:12px;
+  touch-action:none;
+  position:relative;
+}
+.cell{
+  width:34px;height:34px;
+  background:var(--cell);
+  border-radius:5px;
+  transition:.12s;
+}
+.preview{opacity:.45;}
+.flash{animation:flash .25s;}
+@keyframes flash{50%{transform:scale(1.2)}}
+
+#pieces{
+  margin-top:14px;
+  display:flex;
+  gap:14px;
+}
+.piece{
+  display:grid;
+  gap:2px;
+  touch-action:none;
+}
+.block{
+  width:30px;height:30px;
+  border-radius:4px;
+}
+.dragging{
+  position:fixed!important;
+  z-index:60;
+  transform:scale(1.15);
+  pointer-events:none;
+}
+
+/* particle */
+.particle{
+  position:absolute;
+  width:6px;height:6px;
+  border-radius:50%;
+  pointer-events:none;
+  animation:explode .6s forwards;
+}
+@keyframes explode{
+  to{
+    transform:translate(var(--x),var(--y));
+    opacity:0;
+  }
+}
+
+#overlay{
+  position:fixed;
+  inset:0;
+  background:rgba(0,0,0,.65);
+  display:flex;
+  flex-direction:column;
+  justify-content:center;
+  align-items:center;
+  z-index:50;
+}
+button{
+  margin-top:10px;
+  padding:10px 20px;
+  border:none;
+  border-radius:10px;
+  background:#ffd42a;
+  font-weight:bold;
+}
+</style>
+</head>
+<body>
+
+<h2>BLOCK PUZZLE — FINAL BOSS</h2>
+
+<div id="top">
+  <div class="box" id="score">Điểm: 0</div>
+  <div class="box" id="best">Best: 0</div>
+  <div class="box" id="level">Level: 1</div>
+  <div class="box" id="combo">Combo: x1</div>
+</div>
+
+<div id="board"></div>
+<div id="pieces"></div>
+
+<div id="overlay">
+  <h1>FINAL BOSS</h1>
+  <button onclick="startGame()">BẮT ĐẦU</button>
+  <button onclick="changeTheme()">ĐỔI SKIN</button>
+</div>
+
+<script>
+/* ===== CONFIG ===== */
+const SIZE=10;
+const COLORS=["#ffd42a","#58e058","#ff6b4a","#6aaeff","#c86cff"];
+const THEMES=[
+ ["#243b9f","#1b2b7a","#15205c"],
+ ["#202020","#2e2e2e","#3c3c3c"],
+ ["#582d8f","#3c1e66","#2a1448"],
+ ["#0f7d6c","#0b5f52","#08453c"]
+];
+const SHAPES=[
+ [[1,1],[1,1]],
+ [[1,1,1]],
+ [[1],[1],[1]],
+ [[1,0],[1,1]],
+ [[0,1],[1,1]],
+ [[1,1,1,1]]
+];
+
+/* ===== STATE ===== */
+const board=[];
+const boardEl=document.getElementById("board");
+const piecesEl=document.getElementById("pieces");
+const overlay=document.getElementById("overlay");
+
+let score=0;
+let best=localStorage.getItem("bossBest")||0;
+let level=1;
+let combo=1;
+let theme=0;
+
+document.getElementById("best").innerText="Best: "+best;
+
+/* ===== SOUND ===== */
+function beep(f=500,d=80){
+  const ctx=new (window.AudioContext||window.webkitAudioContext)();
+  const o=ctx.createOscillator(), g=ctx.createGain();
+  o.connect(g); g.connect(ctx.destination);
+  o.frequency.value=f;
+  g.gain.value=.08;
+  o.start();
+  g.gain.exponentialRampToValueAtTime(.001,ctx.currentTime+d/1000);
+  o.stop(ctx.currentTime+d/1000);
+}
+
+/* ===== BOARD ===== */
+function createBoard(){
+  boardEl.innerHTML="";
+  for(let y=0;y<SIZE;y++){
+    board[y]=[];
+    for(let x=0;x<SIZE;x++){
+      board[y][x]=0;
+      const c=document.createElement("div");
+      c.className="cell";
+      c.dataset.x=x;c.dataset.y=y;
+      boardEl.appendChild(c);
+    }
+  }
+}
+function renderBoard(){
+  document.querySelectorAll(".cell").forEach(c=>{
+    const x=c.dataset.x,y=c.dataset.y;
+    c.style.background=board[y][x]||"var(--cell)";
+  });
+}
+
+/* ===== PIECES ===== */
+function randomShape(){
+  return SHAPES[Math.floor(Math.random()*SHAPES.length)];
+}
+function createPieces(){
+  piecesEl.innerHTML="";
+  for(let i=0;i<3;i++){
+    const shape=randomShape();
+    const color=COLORS[Math.floor(Math.random()*COLORS.length)];
+
+    const p=document.createElement("div");
+    p.className="piece";
+    p.shape=shape;
+    p.color=color;
+    p.style.gridTemplateColumns=`repeat(${shape[0].length},30px)`;
+
+    shape.forEach(r=>{
+      r.forEach(v=>{
+        const b=document.createElement("div");
+        b.className="block";
+        b.style.background=v?color:"transparent";
+        if(!v) b.style.visibility="hidden";
+        p.appendChild(b);
+      });
+    });
+
+    enableDrag(p);
+    piecesEl.appendChild(p);
+  }
+}
+
+/* ===== DRAG ===== */
+function enableDrag(piece){
+  piece.addEventListener("pointerdown",()=>{
+    piece.classList.add("dragging");
+
+    function move(e){
+      piece.style.left=(e.clientX-40)+"px";
+      piece.style.top=(e.clientY-40)+"px";
+      showPreview(piece.shape,e.clientX,e.clientY,piece.color);
+    }
+
+    function up(e){
+      hidePreview();
+      const pos=getPos(e.clientX,e.clientY);
+
+      if(pos && canPlace(piece.shape,pos.x,pos.y)){
+        place(piece.shape,pos.x,pos.y,piece.color);
+        beep(600,60);
+        renderBoard();
+        clearLines();
+        piece.remove();
+
+        if(piecesEl.children.length===0){
+          createPieces();
+          if(!hasMove()) gameOver();
+        }
+      }else{
+        navigator.vibrate?.(60);
+        beep(150,120);
+      }
+
+      piece.style.left="";
+      piece.style.top="";
+      piece.classList.remove("dragging");
+
+      window.removeEventListener("pointermove",move);
+      window.removeEventListener("pointerup",up);
+    }
+
+    window.addEventListener("pointermove",move);
+    window.addEventListener("pointerup",up);
+  });
+}
+
+/* ===== LOGIC ===== */
+function getPos(cx,cy){
+  const r=boardEl.getBoundingClientRect();
+  if(cx<r.left||cy<r.top||cx>r.right||cy>r.bottom) return null;
+  return {x:Math.floor((cx-r.left)/36), y:Math.floor((cy-r.top)/36)};
+}
+function canPlace(shape,px,py){
+  for(let y=0;y<shape.length;y++)
+    for(let x=0;x<shape[y].length;x++)
+      if(shape[y][x]){
+        let bx=px+x,by=py+y;
+        if(bx<0||bx>=SIZE||by<0||by>=SIZE) return false;
+        if(board[by][bx]) return false;
+      }
+  return true;
+}
+function place(shape,px,py,color){
+  shape.forEach((r,y)=>{
+    r.forEach((v,x)=>{
+      if(v) board[py+y][px+x]=color;
+    });
+  });
+}
+
+/* ===== PARTICLES ===== */
+function particles(x,y,color){
+  for(let i=0;i<18;i++){
+    const p=document.createElement("div");
+    p.className="particle";
+    p.style.background=color;
+    p.style.left=x+"px";
+    p.style.top=y+"px";
+    p.style.setProperty("--x",(Math.random()*80-40)+"px");
+    p.style.setProperty("--y",(Math.random()*80-40)+"px");
+    boardEl.appendChild(p);
+    setTimeout(()=>p.remove(),600);
+  }
+}
+
+/* ===== CLEAR ===== */
+function clearLines(){
+  let cleared=0;
+  const cells=document.querySelectorAll(".cell");
+
+  for(let y=0;y<SIZE;y++){
+    if(board[y].every(v=>v)){
+      board[y].fill(0);
+      cleared++;
+    }
+  }
+
+  for(let x=0;x<SIZE;x++){
+    let full=true;
+    for(let y=0;y<SIZE;y++) if(!board[y][x]) full=false;
+    if(full){
+      for(let y=0;y<SIZE;y++) board[y][x]=0;
+      cleared++;
+    }
+  }
+
+  if(cleared){
+    combo++;
+    score += cleared*10*combo;
+    level=Math.floor(score/200)+1;
+
+    beep(900,120);
+    cells.forEach(c=>c.classList.add("flash"));
+    setTimeout(()=>cells.forEach(c=>c.classList.remove("flash")),250);
+
+    const r=boardEl.getBoundingClientRect();
+    particles(r.width/2,r.height/2,COLORS[Math.floor(Math.random()*COLORS.length)]);
+  }else{
+    combo=1;
+  }
+
+  document.getElementById("score").innerText="Điểm: "+score;
+  document.getElementById("combo").innerText="Combo: x"+combo;
+  document.getElementById("level").innerText="Level: "+level;
+
+  if(score>best){
+    best=score;
+    localStorage.setItem("bossBest",best);
+    document.getElementById("best").innerText="Best: "+best;
+  }
+
+  renderBoard();
+}
+
+function hasMove(){
+  for(let p of piecesEl.children)
+    for(let y=0;y<SIZE;y++)
+      for(let x=0;x<SIZE;x++)
+        if(canPlace(p.shape,x,y)) return true;
+  return false;
+}
+
+/* ===== PREVIEW ===== */
+function showPreview(shape,cx,cy,color){
+  hidePreview();
+  const pos=getPos(cx,cy);
+  if(!pos || !canPlace(shape,pos.x,pos.y)) return;
+
+  shape.forEach((row,y)=>{
+    row.forEach((v,x)=>{
+      if(v){
+        const c=document.querySelector(`.cell[data-x="${pos.x+x}"][data-y="${pos.y+y}"]`);
+        if(c){
+          c.style.background=color;
+          c.classList.add("preview");
+        }
+      }
+    });
+  });
+}
+function hidePreview(){
+  document.querySelectorAll(".preview").forEach(c=>{
+    c.classList.remove("preview");
+    const x=c.dataset.x,y=c.dataset.y;
+    c.style.background=board[y][x]||"var(--cell)";
+  });
+}
+
+/* ===== UI ===== */
+function startGame(){
+  overlay.style.display="none";
+  createPieces();
+}
+function gameOver(){
+  overlay.style.display="flex";
+  overlay.innerHTML=`
+    <h1>GAME OVER</h1>
+    <p>Điểm: ${score}</p>
+    <button onclick="restart()">CHƠI LẠI</button>
+  `;
+}
+function restart(){
+  score=0;combo=1;level=1;
+  document.getElementById("score").innerText="Điểm: 0";
+  document.getElementById("combo").innerText="Combo: x1";
+  document.getElementById("level").innerText="Level: 1";
+  createBoard(); renderBoard();
+  overlay.innerHTML=`
+    <h1>FINAL BOSS</h1>
+    <button onclick="startGame()">BẮT ĐẦU</button>
+    <button onclick="changeTheme()">ĐỔI SKIN</button>
+  `;
+  overlay.style.display="flex";
+}
+
+/* ===== THEME ===== */
+function changeTheme(){
+  theme=(theme+1)%THEMES.length;
+  const t=THEMES[theme];
+  document.documentElement.style.setProperty("--bg",t[0]);
+  document.documentElement.style.setProperty("--board",t[1]);
+  document.documentElement.style.setProperty("--cell",t[2]);
+}
+
+/* ===== INIT ===== */
+createBoard();
+renderBoard();
+</script>
+
+</body>
+</html>
